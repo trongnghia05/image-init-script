@@ -8,11 +8,13 @@
 set -u
 export HF_HUB_DISABLE_XET=1
 
-# COMFY_DIR is exported by the image (see Dockerfile). Fallback to common paths.
-COMFY_DIR="${COMFY_DIR:-/opt/ComfyUI}"
-if [ ! -d "$COMFY_DIR" ]; then
-  for c in /opt/ComfyUI /workspace/ComfyUI; do
-    [ -d "$c" ] && COMFY_DIR="$c" && break
+# Detect the live ComfyUI dir. On Vast the install is at /opt/workspace-internal/ComfyUI
+# and is usually synced to /workspace/ComfyUI when a persistent volume is present.
+# Prefer the workspace copy (runtime), fall back to the internal one.
+COMFY_DIR="${COMFY_DIR:-}"
+if [ -z "$COMFY_DIR" ] || [ ! -f "$COMFY_DIR/main.py" ]; then
+  for c in /workspace/ComfyUI /opt/workspace-internal/ComfyUI /opt/ComfyUI; do
+    [ -f "$c/main.py" ] && COMFY_DIR="$c" && break
   done
 fi
 echo ">>> Using COMFY_DIR=$COMFY_DIR"
