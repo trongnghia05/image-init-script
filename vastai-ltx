@@ -1,0 +1,112 @@
+#!/bin/bash
+# ============================================================
+# LTX 2.3 ComfyUI - Download Models (RUNTIME)
+# Baked into the image; run on container start (e.g. Vast.ai).
+# Downloads models into the live ComfyUI models dir. Skips files
+# that already exist (so re-runs / persistent volumes are cheap).
+# ============================================================
+set -u
+export HF_HUB_DISABLE_XET=1
+
+# COMFY_DIR is exported by the image (see Dockerfile). Fallback to common paths.
+COMFY_DIR="${COMFY_DIR:-/opt/ComfyUI}"
+if [ ! -d "$COMFY_DIR" ]; then
+  for c in /opt/ComfyUI /workspace/ComfyUI; do
+    [ -d "$c" ] && COMFY_DIR="$c" && break
+  done
+fi
+echo ">>> Using COMFY_DIR=$COMFY_DIR"
+
+# Make sure the HF CLI exists
+if ! command -v hf >/dev/null 2>&1; then
+  echo ">>> Installing huggingface_hub CLI..."
+  pip install -q "huggingface_hub[cli]"
+fi
+
+mkdir -p "$COMFY_DIR/models/checkpoints"
+mkdir -p "$COMFY_DIR/models/latent_upscale_models"
+mkdir -p "$COMFY_DIR/models/loras/ltx2"
+mkdir -p "$COMFY_DIR/models/vae"
+mkdir -p "$COMFY_DIR/models/text_encoders"
+
+# ============================================================
+echo ">>> [1/5] Checkpoint fp8 (29 GB)..."
+if [ ! -f "$COMFY_DIR/models/checkpoints/ltx-2.3-22b-dev-fp8.safetensors" ]; then
+  hf download Lightricks/LTX-2.3-fp8 \
+    ltx-2.3-22b-dev-fp8.safetensors \
+    --local-dir "$COMFY_DIR/models/checkpoints"
+else
+  echo "    Đã có, skip."
+fi
+
+# ============================================================
+echo ">>> [2/5] Spatial upscaler..."
+if [ ! -f "$COMFY_DIR/models/latent_upscale_models/ltx-2.3-spatial-upscaler-x2-1.1.safetensors" ]; then
+  hf download Lightricks/LTX-2.3 \
+    ltx-2.3-spatial-upscaler-x2-1.1.safetensors \
+    --local-dir "$COMFY_DIR/models/latent_upscale_models"
+else
+  echo "    Đã có, skip."
+fi
+
+# ============================================================
+echo ">>> [3/5] LoRA..."
+if [ ! -f "$COMFY_DIR/models/loras/ltx2/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors" ]; then
+  hf download Kijai/LTX2.3_comfy \
+    loras/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors \
+    --local-dir "$COMFY_DIR/models/loras/ltx2"
+  # Fix nested path
+  if [ -f "$COMFY_DIR/models/loras/ltx2/loras/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors" ]; then
+    mv "$COMFY_DIR/models/loras/ltx2/loras/"*.safetensors "$COMFY_DIR/models/loras/ltx2/"
+    rmdir "$COMFY_DIR/models/loras/ltx2/loras" 2>/dev/null
+  fi
+else
+  echo "    Đã có, skip."
+fi
+
+# ============================================================
+echo ">>> [4/5] VAE (audio + video + TAE)..."
+for f in LTX23_audio_vae_bf16.safetensors LTX23_video_vae_bf16.safetensors taeltx2_3.safetensors; do
+  if [ ! -f "$COMFY_DIR/models/vae/$f" ]; then
+    hf download Kijai/LTX2.3_comfy "vae/$f" --local-dir "$COMFY_DIR/models/vae"
+    [ -d "$COMFY_DIR/models/vae/vae" ] && mv "$COMFY_DIR/models/vae/vae/"* "$COMFY_DIR/models/vae/" && rmdir "$COMFY_DIR/models/vae/vae" 2>/dev/null
+  else
+    echo "    $f đã có, skip."
+  fi
+done
+
+# ============================================================
+echo ">>> [5/5] Text encoders..."
+if [ ! -f "$COMFY_DIR/models/text_encoders/ltx-2.3_text_projection_bf16.safetensors" ]; then
+  hf download Kijai/LTX2.3_comfy \
+    text_encoders/ltx-2.3_text_projection_bf16.safetensors \
+    --local-dir "$COMFY_DIR/models/text_encoders"
+  if [ -d "$COMFY_DIR/models/text_encoders/text_encoders" ]; then
+    mv "$COMFY_DIR/models/text_encoders/text_encoders/"* "$COMFY_DIR/models/text_encoders/"
+    rmdir "$COMFY_DIR/models/text_encoders/text_encoders" 2>/dev/null
+  fi
+else
+  echo "    ltx-2.3_text_projection_bf16.safetensors đã có, skip."
+fi
+
+if [ ! -f "$COMFY_DIR/models/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" ]; then
+  hf download Comfy-Org/ltx-2 \
+    split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors \
+    --local-dir "$COMFY_DIR/models/text_encoders"
+  if [ -d "$COMFY_DIR/models/text_encoders/split_files" ]; then
+    mv "$COMFY_DIR/models/text_encoders/split_files/text_encoders/"* "$COMFY_DIR/models/text_encoders/"
+    rm -rf "$COMFY_DIR/models/text_encoders/split_files" 2>/dev/null
+  fi
+else
+  echo "    gemma_3_12B_it_fp4_mixed.safetensors đã có, skip."
+fi
+
+# ============================================================
+echo ""
+echo ">>> Verify:"
+echo "=== checkpoints ===" && find "$COMFY_DIR/models/checkpoints" -name "*.safetensors"
+echo "=== upscale ==="     && find "$COMFY_DIR/models/latent_upscale_models" -name "*.safetensors"
+echo "=== loras ==="       && find "$COMFY_DIR/models/loras" -name "*.safetensors"
+echo "=== vae ==="         && find "$COMFY_DIR/models/vae" -name "*.safetensors"
+echo "=== text_encoders ===" && find "$COMFY_DIR/models/text_encoders" -name "*.safetensors"
+echo ">>> Models done."
