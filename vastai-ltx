@@ -66,6 +66,17 @@ else
   echo "    Đã có, skip."
 fi
 
+# LoRA distilled-384 v1.1 (Lightricks/LTX-2.3) -> root models/loras để workflow tham
+# chiếu "ltx-2.3-22b-distilled-lora-384-1.1.safetensors" (không prefix ltx2/).
+echo ">>> [3b/5] LoRA distilled-384-1.1..."
+if [ ! -f "$COMFY_DIR/models/loras/ltx-2.3-22b-distilled-lora-384-1.1.safetensors" ]; then
+  hf download Lightricks/LTX-2.3 \
+    ltx-2.3-22b-distilled-lora-384-1.1.safetensors \
+    --local-dir "$COMFY_DIR/models/loras"
+else
+  echo "    Đã có, skip."
+fi
+
 # ============================================================
 echo ">>> [4/5] VAE (audio + video + TAE)..."
 for f in LTX23_audio_vae_bf16.safetensors LTX23_video_vae_bf16.safetensors taeltx2_3.safetensors; do
